@@ -3,30 +3,84 @@
 REST API + static frontend for the Product Management module, backed by the
 `sql/001_schema_v2.sql` schema.
 
-## Setup
+## Windows setup (PowerShell)
+
+1. **Install Node.js and PostgreSQL** (skip if already installed):
+
+   ```powershell
+   winget install OpenJS.NodeJS.LTS
+   winget install PostgreSQL.PostgreSQL.17
+   ```
+
+   The PostgreSQL installer asks you to set a password for the `postgres`
+   superuser during setup — remember it, you'll use it below. It also adds
+   `psql` to a folder like `C:\Program Files\PostgreSQL\17\bin`; if `psql`
+   isn't recognized afterward, either open a new terminal or add that folder
+   to your `PATH`.
+
+2. **Clone the repo and install dependencies**:
+
+   ```powershell
+   git clone <your-repo-url>
+   cd product_management\backend
+   npm install
+   ```
+
+3. **Create the database and apply the schema**:
+
+   ```powershell
+   $env:PGPASSWORD = "<the postgres password you set during install>"
+   createdb -U postgres product_management
+   psql -U postgres -d product_management -f ..\sql\001_schema_v2.sql
+   ```
+
+4. **Create a least-privilege app role**:
+
+   ```powershell
+   psql -U postgres -d product_management -c "CREATE ROLE erp_app LOGIN PASSWORD 'change-me'; GRANT USAGE ON SCHEMA core, product TO erp_app; GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA core, product TO erp_app; GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA core, product TO erp_app;"
+   ```
+
+5. **Load your CSVs** — this step is a cross-platform Node script (no bash/
+   iconv/WSL needed), so it runs the same way on Windows:
+
+   ```powershell
+   $env:PRODUCTS_CSV = "C:\path\to\products.csv"
+   $env:VARIANTS_CSV = "C:\path\to\variants.csv"
+   $env:PGUSER = "postgres"
+   $env:PGPASSWORD = "<the postgres password you set during install>"
+   $env:PGDATABASE = "product_management"
+   node scripts\load-data.js
+   ```
+
+   It re-encodes the CSVs from Windows-1252 to UTF-8, stages them, and runs
+   `sql/002_migration_v1_to_v2.sql`. Expect to see `Done. Row counts: { products: '1469', variants: '25358' }`
+   (or your own counts if your CSVs differ).
+
+6. **Configure and run the API**:
+
+   ```powershell
+   Copy-Item .env.example .env
+   # edit .env: set PGUSER=erp_app and PGPASSWORD=change-me (the role from step 4)
+   npm start
+   ```
+
+   Then open **http://localhost:4000** in your browser.
+
+## macOS / Linux setup
+
+Same steps, using your package manager (`brew install node postgresql` /
+`apt install nodejs postgresql`) and either `scripts/load-data.js` (same as
+above) or the bash equivalent `scripts/load-data.sh` (needs `iconv`, which
+ships standard on macOS/Linux):
 
 ```bash
 npm install
-
-# 1. Create the database and apply the schema (needs a privileged role, e.g. postgres):
 createdb product_management
 psql -d product_management -f ../sql/001_schema_v2.sql
-
-# 2. Create a least-privilege app role and grant it access:
-psql -d product_management <<'SQL'
-CREATE ROLE erp_app LOGIN PASSWORD 'change-me';
-GRANT USAGE ON SCHEMA core, product TO erp_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA core, product TO erp_app;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA core, product TO erp_app;
-SQL
-
-# 3. Load your CSVs (re-encodes, stages, then runs sql/002_migration_v1_to_v2.sql):
+psql -d product_management -c "CREATE ROLE erp_app LOGIN PASSWORD 'change-me'; GRANT USAGE ON SCHEMA core, product TO erp_app; GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA core, product TO erp_app; GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA core, product TO erp_app;"
 PRODUCTS_CSV=/path/to/products.csv VARIANTS_CSV=/path/to/variants.csv \
-  PGUSER=postgres PGDATABASE=product_management \
-  ./scripts/load-data.sh
-
-# 4. Configure and run the API:
-cp .env.example .env   # edit PGUSER/PGPASSWORD to the erp_app role from step 2
+  PGUSER=postgres PGDATABASE=product_management node scripts/load-data.js
+cp .env.example .env   # edit PGUSER/PGPASSWORD to the erp_app role
 npm start
 ```
 
