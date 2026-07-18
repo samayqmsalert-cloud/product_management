@@ -1,0 +1,21 @@
+databases:
+  - name: orthoerp-product-db
+    plan: free
+    region: oregon
+    postgresMajorVersion: "16"
+
+services:
+  - name: orthoerp-product-management
+    type: web
+    runtime: node
+    plan: free
+    region: oregon
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    initialDeployHook: node scripts/render-init.js
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: orthoerp-product-db
+          property: connectionString
