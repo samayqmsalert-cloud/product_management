@@ -1,0 +1,16 @@
+{
+  "name": "orthoerp-product-management-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "REST API for the Product Management module of the orthopedic implant ERP.",
+  "type": "commonjs",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "pg": "^8.12.0"
+  }
+}
