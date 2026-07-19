@@ -79,6 +79,57 @@ router.get("/", async (req, res, next) => {
 });
 
 // ---------------------------------------------------------------
+// POST /api/products — create
+// ---------------------------------------------------------------
+router.post("/", async (req, res, next) => {
+  try {
+    const { code, name, typeId, isSterile, status, catalogVisible, remark } = req.body;
+    if (!code || !name || !typeId) {
+      return res.status(400).json({ error: "code, name, and typeId are required" });
+    }
+    const { rows } = await query(`
+      INSERT INTO product.product (
+        product_code, product_type_id, product_name, is_sterile, status, is_catalog_visible, remark, created_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, (SELECT min(user_id) FROM core.app_user))
+      RETURNING product_id AS id
+    `, [code, typeId, name, !!isSterile, status || "draft", !!catalogVisible, remark || null]);
+    res.status(201).json({ id: rows[0].id });
+  } catch (e) {
+    if (e.code === "23505") return res.status(409).json({ error: "A live product already uses that product code." });
+    if (e.code === "23503") return res.status(400).json({ error: "That type/family/category no longer exists." });
+    next(e);
+  }
+});
+
+// ---------------------------------------------------------------
+// PUT /api/products/:id — edit
+// ---------------------------------------------------------------
+router.put("/:id", async (req, res, next) => {
+  try {
+    const { name, typeId, isSterile, status, catalogVisible, remark } = req.body;
+    if (!name || !typeId) {
+      return res.status(400).json({ error: "name and typeId are required" });
+    }
+    const { rows } = await query(`
+      UPDATE product.product SET
+        product_name = $2,
+        product_type_id = $3,
+        is_sterile = $4,
+        status = $5,
+        is_catalog_visible = $6,
+        remark = $7
+      WHERE product_id = $1 AND deleted_at IS NULL
+      RETURNING product_id AS id
+    `, [req.params.id, name, typeId, !!isSterile, status, !!catalogVisible, remark || null]);
+    if (!rows.length) return res.status(404).json({ error: "Product not found" });
+    res.json({ id: rows[0].id });
+  } catch (e) {
+    if (e.code === "23503") return res.status(400).json({ error: "That type/family/category no longer exists." });
+    next(e);
+  }
+});
+
+// ---------------------------------------------------------------
 // GET /api/products/:id — overview
 // ---------------------------------------------------------------
 router.get("/:id", async (req, res, next) => {

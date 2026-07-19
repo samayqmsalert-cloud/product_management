@@ -71,6 +71,51 @@
     }
     return res.json();
   }
+  async function apiPut(path, payload) {
+    var res = await fetch(path, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      var body = await res.json().catch(function () { return {}; });
+      throw new Error(body.error || (res.status + " " + res.statusText));
+    }
+    return res.json();
+  }
+
+  // ---------- modal ----------
+  function ensureModalRoot() {
+    var root = el("#modal-root");
+    if (!root) {
+      root = document.createElement("div");
+      root.id = "modal-root";
+      document.body.appendChild(root);
+    }
+    return root;
+  }
+  function closeModal() {
+    var root = el("#modal-root");
+    if (root) root.innerHTML = "";
+  }
+  function openModal(titleHtml, bodyHtml) {
+    var root = ensureModalRoot();
+    root.innerHTML =
+      '<div class="modal-overlay" id="modal-overlay">' +
+        '<div class="modal-box" role="dialog" aria-modal="true">' +
+          '<div class="modal-head"><h2>' + titleHtml + '</h2><button class="modal-close" id="modal-close" aria-label="Close">✕</button></div>' +
+          '<div class="modal-body">' + bodyHtml + "</div>" +
+        "</div>" +
+      "</div>";
+    el("#modal-close").addEventListener("click", closeModal);
+    el("#modal-overlay").addEventListener("click", function (e) {
+      if (e.target.id === "modal-overlay") closeModal();
+    });
+    document.addEventListener("keydown", function escHandler(e) {
+      if (e.key === "Escape") { closeModal(); document.removeEventListener("keydown", escHandler); }
+    });
+    return root;
+  }
 
   function pager(pageInfo, onPage) {
     if (!pageInfo || pageInfo.totalPages <= 1) return "";
@@ -206,6 +251,124 @@
     return state.cache.materials;
   }
 
+  // ---------- Add / Edit Product modal ----------
+  async function openProductForm(existing) {
+    var isEdit = !!existing;
+    var categories = await loadCategories();
+    var initialFamilies = [];
+    var initialTypes = [];
+    if (existing) {
+      initialFamilies = await loadFamilies(existing.categoryId);
+      initialTypes = await loadTypes(existing.familyId);
+    }
+
+    var bodyHtml =
+      '<form id="product-form">' +
+        '<div class="form-row"><label for="pf-name">Product Name</label>' +
+          '<input id="pf-name" type="text" required value="' + esc(existing ? existing.name : "") + '" /></div>' +
+        '<div class="form-row"><label for="pf-code">Product Code</label>' +
+          '<input id="pf-code" type="text" required value="' + esc(existing ? existing.code : "") + '" ' + (isEdit ? "disabled" : "") + ' />' +
+          (isEdit ? '<div class="form-hint">Product code can\'t be changed after creation.</div>' : "") +
+        "</div>" +
+        '<div class="form-grid-3">' +
+          '<div class="form-row"><label for="pf-category">Category</label><select id="pf-category"><option value="">Select…</option>' +
+            categories.map(function (c) { return '<option value="' + c.id + '"' + (existing && existing.categoryId === c.id ? " selected" : "") + ">" + esc(c.name) + "</option>"; }).join("") +
+          "</select></div>" +
+          '<div class="form-row"><label for="pf-family">Family</label><select id="pf-family" disabled><option value="">Select category first…</option>' +
+            initialFamilies.map(function (f) { return '<option value="' + f.id + '"' + (existing && existing.familyId === f.id ? " selected" : "") + ">" + esc(f.name) + "</option>"; }).join("") +
+          "</select></div>" +
+          '<div class="form-row"><label for="pf-type">Type</label><select id="pf-type" disabled><option value="">Select family first…</option>' +
+            initialTypes.map(function (t) { return '<option value="' + t.id + '"' + (existing && existing.typeId === t.id ? " selected" : "") + ">" + esc(t.name) + "</option>"; }).join("") +
+          "</select></div>" +
+        "</div>" +
+        '<div class="form-grid-2">' +
+          '<div class="form-row"><label for="pf-status">Status</label><select id="pf-status">' +
+            ["draft", "pending_approval", "active", "discontinued", "obsolete"].map(function (s) {
+              return '<option value="' + s + '"' + (existing && existing.status === s ? " selected" : "") + ">" + s.replace("_", " ") + "</option>";
+            }).join("") +
+          "</select></div>" +
+          '<div class="form-row form-row-checks">' +
+            '<label class="checkbox-label"><input type="checkbox" id="pf-sterile" ' + (existing && existing.isSterile ? "checked" : "") + " /> Sterile packaging</label>" +
+            '<label class="checkbox-label"><input type="checkbox" id="pf-visible" ' + (existing && existing.catalogVisible ? "checked" : "") + " /> Catalog visible</label>" +
+          "</div>" +
+        "</div>" +
+        '<div class="form-row"><label for="pf-remark">Remark</label>' +
+          '<textarea id="pf-remark" rows="3">' + esc(existing ? existing.remark || "" : "") + "</textarea></div>" +
+        '<div class="form-error" id="pf-error" hidden></div>' +
+        '<div class="modal-actions">' +
+          '<button type="button" class="btn-secondary" id="pf-cancel">Cancel</button>' +
+          '<button type="submit" class="btn-primary">' + (isEdit ? "Save Changes" : "Create Product") + "</button>" +
+        "</div>" +
+      "</form>";
+
+    openModal(isEdit ? "Edit Product" : "Add Product", bodyHtml);
+    el("#pf-cancel").addEventListener("click", closeModal);
+
+    var categorySelect = el("#pf-category");
+    var familySelect = el("#pf-family");
+    var typeSelect = el("#pf-type");
+
+    categorySelect.addEventListener("change", async function () {
+      familySelect.innerHTML = '<option value="">Loading…</option>';
+      familySelect.disabled = true;
+      typeSelect.innerHTML = '<option value="">Select family first…</option>';
+      typeSelect.disabled = true;
+      if (!categorySelect.value) { familySelect.innerHTML = '<option value="">Select category first…</option>'; return; }
+      var families = await loadFamilies(Number(categorySelect.value));
+      familySelect.innerHTML = '<option value="">Select…</option>' +
+        families.map(function (f) { return '<option value="' + f.id + '">' + esc(f.name) + "</option>"; }).join("");
+      familySelect.disabled = false;
+    });
+
+    familySelect.addEventListener("change", async function () {
+      typeSelect.innerHTML = '<option value="">Loading…</option>';
+      typeSelect.disabled = true;
+      if (!familySelect.value) { typeSelect.innerHTML = '<option value="">Select family first…</option>'; return; }
+      var types = await loadTypes(Number(familySelect.value));
+      typeSelect.innerHTML = '<option value="">Select…</option>' +
+        types.map(function (t) { return '<option value="' + t.id + '">' + esc(t.name) + "</option>"; }).join("");
+      typeSelect.disabled = false;
+    });
+
+    if (existing) { familySelect.disabled = false; typeSelect.disabled = false; }
+
+    el("#product-form").addEventListener("submit", async function (e) {
+      e.preventDefault();
+      var errorBox = el("#pf-error");
+      errorBox.hidden = true;
+      var payload = {
+        name: el("#pf-name").value.trim(),
+        typeId: Number(typeSelect.value) || null,
+        status: el("#pf-status").value,
+        isSterile: el("#pf-sterile").checked,
+        catalogVisible: el("#pf-visible").checked,
+        remark: el("#pf-remark").value.trim(),
+      };
+      if (!isEdit) payload.code = el("#pf-code").value.trim();
+      if (!payload.typeId) {
+        errorBox.textContent = "Please select a Category, Family, and Type.";
+        errorBox.hidden = false;
+        return;
+      }
+      try {
+        if (isEdit) {
+          await apiPut("/api/products/" + existing.id, payload);
+          closeModal();
+          goto("#/products/" + existing.id);
+          renderProductDetail();
+        } else {
+          var created = await apiPost("/api/products", payload);
+          closeModal();
+          state.cache.categories = null; // counts changed
+          goto("#/products/" + created.id);
+        }
+      } catch (err) {
+        errorBox.textContent = err.message;
+        errorBox.hidden = false;
+      }
+    });
+  }
+
   async function renderProductList() {
     var main = el("#view");
     main.innerHTML = '<div class="page-head"><h1>Products</h1><p class="page-sub">Loading catalog…</p></div>' + loadingBlock();
@@ -260,7 +423,9 @@
       }).join("");
 
     main.innerHTML =
-      '<div class="page-head"><h1>Products</h1><p class="page-sub">' + result.total.toLocaleString() + " products in the live catalog.</p></div>" +
+      '<div class="page-head page-head-row"><div><h1>Products</h1><p class="page-sub">' + result.total.toLocaleString() + ' products in the live catalog.</p></div>' +
+        '<button class="btn-primary" id="add-product-btn">+ Add Product</button>' +
+      "</div>" +
       '<div class="list-layout">' +
         '<aside class="filter-rail">' +
           '<div class="filter-block"><div class="filter-label">Hierarchy</div><div class="tree" id="cat-tree">' + treeHtml + "</div></div>" +
@@ -279,6 +444,8 @@
           pager(result, null) +
         "</div>" +
       "</div>";
+
+    el("#add-product-btn").addEventListener("click", function () { openProductForm(null); });
 
     el("#f-status").value = f.status;
     el("#f-status").addEventListener("change", function (e) { state.productFilters.status = e.target.value; state.productPage = 1; renderProductList(); });
@@ -364,6 +531,7 @@
           (p.isSterile ? '<span class="pill pill-accent">Sterile</span>' : "") +
           (p.catalogVisible ? '<span class="pill pill-ok-outline">Catalog visible</span>' : '<span class="pill pill-muted-outline">Hidden from catalog</span>') +
         "</div></div>" +
+        '<button class="btn-secondary" id="edit-product-btn">Edit Product</button>' +
       "</div>" +
       '<div class="tab-bar">' +
         TABS.map(function (t) {
@@ -377,6 +545,7 @@
       if (!btn) return;
       goto("#/products/" + p.id + "/" + btn.dataset.tab);
     });
+    el("#edit-product-btn").addEventListener("click", function () { openProductForm(p); });
 
     renderTabPanel(p);
   }
